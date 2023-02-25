@@ -31,16 +31,23 @@
             src = self;
             inherit (json) version;
             npmDepsHash = "sha256-me2Fsvafir/e/k8nbxDdy4lLuvnTT7m8k+GVs3p12MY=";
+            postInstall = ''
+              cp -r .svelte-kit $out/lib/node_modules/${name}/build/
+            '';
           };
 
-          src-tauri = "${frontend}/lib/node_modules/${name}/src-tauri";
-          toml = builtins.fromTOML (builtins.readFile "${src-tauri}/Cargo.toml");
+          toml = builtins.fromTOML (builtins.readFile ./src-tauri/Cargo.toml);
 
           tauri-pkg = rustPlatform.buildRustPackage {
             pname = toml.package.name;
-            src = src-tauri;
+            src = ./src-tauri;
             inherit (toml.package) version;
-            cargoLock.lockFile = "${src-tauri}/Cargo.lock";
+            cargoLock.lockFile = ./src-tauri/Cargo.lock;
+
+            postPatch = ''
+              substituteInPlace tauri.conf.json --replace \
+                '"distDir": "../build"' '"distDir": "${frontend}/lib/node_modules/${name}/build"'
+            '';
 
             buildInputs = lib.optionals stdenv.isDarwin [
               Carbon
