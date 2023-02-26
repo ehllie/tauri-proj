@@ -6,85 +6,82 @@
 
   outputs = { self, nixpkgs, flake-utils }:
     let
-      toml = builtins.fromTOML (builtins.readFile ./src-tauri/Cargo.toml);
       json = builtins.fromJSON (builtins.readFile "${self}/package.json");
-
-      name = toml.package.name;
-      fe-name = json.name;
+      pname = json.name;
+      version = json.version;
     in
     {
       overlays.default = final: prev:
         let
           inherit (final)
             darwin
-            buildNpmPackage
+            fetchNpmDeps
             lib
-            stdenv
-            cargo-tauri
-            writeShellScriptBin
-            rustPlatform;
-          inherit (darwin.apple_sdk.frameworks)
-            Carbon
-            CoreServices
-            Security
-            WebKit
-            AppKit;
+            rustPlatform
+            stdenv;
 
-          frontend = buildNpmPackage {
-            pname = fe-name;
+          package = stdenv.mkDerivation {
+            inherit pname version;
             src = self;
-            inherit (json) version;
-            npmDepsHash = "sha256-me2Fsvafir/e/k8nbxDdy4lLuvnTT7m8k+GVs3p12MY=";
-            postInstall = ''
-              cp -r .svelte-kit $out/lib/node_modules/${fe-name}/build/
-            '';
-          };
 
-          tauri-pkg = rustPlatform.buildRustPackage {
-            pname = name;
-            src = ./src-tauri;
-            inherit (toml.package) version;
-            cargoLock.lockFile = ./src-tauri/Cargo.lock;
+            nativeBuildInputs = lib.attrValues {
+              inherit (final.npmHooks)
+                npmConfigHook;
+              inherit (rustPlatform)
+                cargoSetupHook;
+              inherit (final)
+                cargo-tauri
+                cargo
+                libiconv
+                nodejs
+                rustc;
+              inherit (darwin.apple_sdk.frameworks)
+                AppKit
+                Carbon
+                CoreServices
+                Security
+                WebKit;
+            };
+
+            npmDeps = fetchNpmDeps {
+              src = self;
+              inherit (package) name;
+              hash = "sha256-me2Fsvafir/e/k8nbxDdy4lLuvnTT7m8k+GVs3p12MY=";
+            };
+
+            cargoDeps = rustPlatform.importCargoLock {
+              lockFile = ./src-tauri/Cargo.lock;
+            };
 
             postPatch = ''
-              substituteInPlace tauri.conf.json --replace \
-                '"distDir": "../build"' '"distDir": "${frontend}/lib/node_modules/${fe-name}/build"'
+              # cargoSetupHook expects a Cargo.lock in the base directory
+              ln src-tauri/Cargo.lock Cargo.lock
             '';
 
-            nativeBuildInputs = [
-              cargo-tauri
-              (writeShellScriptBin "npm" "true")
-            ];
-
-            buildInputs = lib.optionals stdenv.isDarwin [
-              Carbon
-              CoreServices
-              Security
-              WebKit
-              AppKit
-            ];
-
             buildPhase = ''
-              # function npm { true; }
-              # cargo tauri info
+              # passing `-b app` so that the bundler doesn't try to create a dmg
+              # needs to be changed for linux builds
               cargo tauri build -vb app
             '';
 
             installPhase = ''
+              # darwin specific install logic
               mkdir -p $out/Applications
-              cp -r target/release/bundle/macos/*.app $out/Applications/
+              cp -r src-tauri/target/release/bundle/macos/*.app \
+                $out/Applications/
             '';
 
+            # convinience passthru for hacking on the project with devShells
             passthru = rec {
               shell = prev.mkShell {
-                name = "${fe-name}-devShell";
-                inputsFrom = [ tauri-pkg ];
-                packages = with prev; [
-                  cargo-tauri
-                  rust-analyzer
-                  clippy
-                  rustfmt
-                ];
+                name = "${pname}-devShell";
+                inputsFrom = [ package ];
+                packages = lib.attrValues {
+                  inherit (final)
+                    rust-analyzer
+                    clippy
+                    rustfmt;
+                };
                 shellHook = ''
                   export PATH=$PWD/target/debug:$PATH
                 '';
@@ -93,8 +90,7 @@
             };
           };
         in
-        { ${name} = tauri-pkg; }
-      ;
+        { ${pname} = package; };
     } //
 
     (flake-utils.lib.eachDefaultSystem (system:
@@ -103,12 +99,12 @@
           inherit system;
           overlays = [ self.overlays.default ];
         };
-        package = pkgs.${name};
+        package = pkgs.${pname};
       in
       {
         packages = {
           default = package;
-          ${name} = package;
+          ${pname} = package;
           cache = package.passthru.cache;
         };
         devShells.default = package.passthru.shell;
