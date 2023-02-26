@@ -1,38 +1,5 @@
-# create-svelte
+# Building tauri with nix
 
-Everything you need to build a Svelte project, powered by [`create-svelte`](https://github.com/sveltejs/kit/tree/master/packages/create-svelte).
+I wanted to explore how best to build tauri apps using nix. Initially I trying to replicate [the nixpkgs PR by dit7ya](https://github.com/NixOS/nixpkgs/pull/187547), but I ran into some issues with the approach they took. Instead of building the node and rust packages separately with `buildNpmPackage` and `buildRustPackage`, I opted to setup both npm and cargo dependencies in one derivation, and hand over the build to the `cargo tauri build` command.
 
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
-
-```bash
-# create a new project in the current directory
-npm create svelte@latest
-
-# create a new project in my-app
-npm create svelte@latest my-app
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```bash
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```bash
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://kit.svelte.dev/docs/adapters) for your target environment.
+Some things are darwin specific in this derivation, but it should not be that dificcult to make it crosss platform by using `lib.optionals stdenv.isDarwin` in a couple places.
